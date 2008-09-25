@@ -50,8 +50,8 @@ collectAnswer msg s = do
     Nothing -> doingItWrong
     Just i -> if i < 1 || i > 4 then doingItWrong else return i
 
-playGame :: Maybe Params -> IO ()
-playGame paramsMb = do
+playGame :: Maybe Params -> Int -> IO ()
+playGame paramsMb roundNum = do
   tags <- getTags paramsMb
   let
     params = tagsToParams tags
@@ -63,10 +63,10 @@ playGame paramsMb = do
     -- lol param name..
     Just wordStr = M.lookup "INFO3" params
     word:choices = breaks (== '|') wordStr
-  c <- collectAnswer correctStr . unlines $ 
+  c <- collectAnswer (show roundNum ++ ": " ++ correctStr) . unlines $ 
     word:"":zipWith (\ n c -> show n ++ " " ++ c) [1..] choices
   let params' = M.insert "SELECTED" (show c) params
-  playGame $ Just params'
+  playGame (Just params') $ roundNum + 1
 
 main :: IO ()
-main = hSetBuffering stdin NoBuffering >> playGame Nothing
+main = hSetBuffering stdin NoBuffering >> playGame Nothing 1
