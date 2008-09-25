@@ -19,7 +19,7 @@ getTags postDataMb = let
     Just params -> ["--post-data", 
       intercalate "&" . map (\ (k, v) -> k ++ "=" ++ v) $ M.toList params]
   args = ["-O", "-", "http://freerice.com"] ++ postDataArgs
-  in parseTags <$> run ("wget", args)
+  in parseTags <$> run ("hide_errs", "wget":args)
 
 tagsToParams :: [Tag] -> Params
 tagsToParams = let
