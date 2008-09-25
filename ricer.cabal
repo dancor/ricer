@@ -5,7 +5,7 @@ license-file:   LICENSE
 author:         dan corson <danl@alum.mit.edu>
 synopsis:       <syn>
 build-type:     Simple
-build-depends:  base, haskell98
+build-depends:  FUtil, HSH, base, containers, tagsoup
 
 executable:     ricer
 main-is:        Main.hs
