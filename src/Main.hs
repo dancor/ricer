@@ -39,16 +39,16 @@ tagsToCorrectStr tags = let
       Just . reverse . dropWhile isSpace . reverse $ dropWhile isSpace t
     _ -> error "unexpected response from freerice.."
 
-collectAnswer :: String -> String -> IO Int
+collectAnswer :: String -> String -> IO (Maybe Int)
 collectAnswer msg s = do
   clrScr
   putStr $ msg ++ "\n\n" ++ s
   let
     doingItWrong = collectAnswer "Enter one of the number choices." s
   c <- getChar
-  case readMb [c] of
+  if c == 'q' then return Nothing else case readMb [c] of
     Nothing -> doingItWrong
-    Just i -> if i < 1 || i > 4 then doingItWrong else return i
+    Just i -> if i < 1 || i > 4 then doingItWrong else return $ Just i
 
 playGame :: Maybe Params -> Int -> IO ()
 playGame paramsMb roundNum = do
@@ -63,10 +63,12 @@ playGame paramsMb roundNum = do
     -- lol param name..
     Just wordStr = M.lookup "INFO3" params
     word:choices = breaks (== '|') wordStr
-  c <- collectAnswer (show roundNum ++ ": " ++ correctStr) . unlines $ 
+  ans <- collectAnswer (show roundNum ++ ": " ++ correctStr) . unlines $ 
     word:"":zipWith (\ n c -> show n ++ " " ++ c) [1..] choices
-  let params' = M.insert "SELECTED" (show c) params
-  playGame (Just params') $ roundNum + 1
+  case ans of
+    Nothing -> return ()
+    Just i -> let params' = M.insert "SELECTED" (show i) params
+      in playGame (Just params') $ roundNum + 1
 
 main :: IO ()
 main = hSetBuffering stdin NoBuffering >> playGame Nothing 1
