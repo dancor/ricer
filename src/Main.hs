@@ -12,6 +12,13 @@ import qualified Data.Map as M
 
 type Params = M.Map String String
 
+data State = State {
+  roundNum :: Int,
+  rightNum :: Int
+  }
+
+startState = State 0 0
+
 getTags :: Maybe Params -> IO [Tag]
 getTags postDataMb = let 
   postDataArgs = case postDataMb of
@@ -50,25 +57,26 @@ collectAnswer msg s = do
     Nothing -> doingItWrong
     Just i -> if i < 1 || i > 4 then doingItWrong else return $ Just i
 
-playGame :: Maybe Params -> Int -> IO ()
-playGame paramsMb roundNum = do
+playGame :: Maybe Params -> State -> IO ()
+playGame paramsMb (State roundNum rightNum) = do
   tags <- getTags paramsMb
   let
     params = tagsToParams tags
-    correctStr = case paramsMb of
-      Nothing -> ""
+    (correctStr, rightNum') = case paramsMb of
+      Nothing -> ("", rightNum)
       _ -> case tagsToCorrectStr tags of
-        Nothing -> "correct!"
-        Just s -> "wrong!  " ++ s
+        Nothing -> ("correct!", rightNum + 1)
+        Just s -> ("wrong!  " ++ s, rightNum)
     -- lol param name..
     Just wordStr = M.lookup "INFO3" params
     word:choices = breaks (== '|') wordStr
-  ans <- collectAnswer (show roundNum ++ ": " ++ correctStr) . unlines $ 
+    topStr = show rightNum' ++ " / " ++ show roundNum ++ ": " ++ correctStr
+  ans <- collectAnswer topStr . unlines $ 
     word:"":zipWith (\ n c -> show n ++ " " ++ c) [1..] choices
   case ans of
     Nothing -> return ()
     Just i -> let params' = M.insert "SELECTED" (show i) params
-      in playGame (Just params') $ roundNum + 1
+      in playGame (Just params') $ State (roundNum + 1) rightNum'
 
 main :: IO ()
-main = hSetBuffering stdin NoBuffering >> playGame Nothing 1
+main = hSetBuffering stdin NoBuffering >> playGame Nothing startState
