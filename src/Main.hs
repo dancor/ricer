@@ -5,6 +5,8 @@ import Data.Char
 import Data.List
 import FUtil
 import HSH
+import System.Directory
+import System.Environment
 import System.IO
 import Text.HTML.TagSoup
 import Text.HTML.TagSoup.Match
@@ -17,6 +19,7 @@ data State = State {
   rightNum :: Int
   }
 
+startState :: State
 startState = State 0 0
 
 getTags :: Maybe Params -> IO [Tag]
@@ -60,13 +63,16 @@ collectAnswer msg s = do
 playGame :: Maybe Params -> State -> IO ()
 playGame paramsMb (State roundNum rightNum) = do
   tags <- getTags paramsMb
+  home <- getEnv "HOME"
+  (correctStr, rightNum') <- case paramsMb of
+    Nothing -> return ("", rightNum)
+    _ -> case tagsToCorrectStr tags of
+      Nothing -> return ("correct!", rightNum + 1)
+      Just s -> do
+        appendFile (home ++ "/.ricer/wrong") (head (words s) ++ "\n")
+        return ("wrong!  " ++ s, rightNum)
   let
     params = tagsToParams tags
-    (correctStr, rightNum') = case paramsMb of
-      Nothing -> ("", rightNum)
-      _ -> case tagsToCorrectStr tags of
-        Nothing -> ("correct!", rightNum + 1)
-        Just s -> ("wrong!  " ++ s, rightNum)
     -- lol param name..
     Just wordStr = M.lookup "INFO3" params
     word:choices = breaks (== '|') wordStr
@@ -79,4 +85,8 @@ playGame paramsMb (State roundNum rightNum) = do
       in playGame (Just params') $ State (roundNum + 1) rightNum'
 
 main :: IO ()
-main = hSetBuffering stdin NoBuffering >> playGame Nothing startState
+main = do
+  hSetBuffering stdin NoBuffering
+  home <- getEnv "HOME"
+  createDirectoryIfMissing False $ home ++ "/.ricer"
+  playGame Nothing startState
