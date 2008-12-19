@@ -1,10 +1,12 @@
 module Main where
 
 import Control.Applicative
+import Control.Monad
 import Data.Char
 import Data.List
 import FUtil
 import HSH
+import System.Console.GetOpt
 import System.Directory
 import System.Environment
 import System.IO
@@ -12,21 +14,39 @@ import Text.HTML.TagSoup
 import Text.HTML.TagSoup.Match
 import qualified Data.Map as M
 
+data Options = Options {
+    optTillNRight :: Maybe Int
+}
+
+defOpts :: Options
+defOpts = Options {
+    optTillNRight = Nothing
+}
+
+options :: [OptDescr (Options -> Options)]
+options = [
+  Option "n" ["till-n-right"]
+    (ReqArg (\ a o -> o {optTillNRight = Just $ read a}) "N")
+    "exit after getting N right"
+  ]
+
 type Params = M.Map String String
 
 data State = State {
   roundNum :: Int,
-  rightNum :: Int
+  rightNum :: Int,
+  lastWord :: String,
+  lastGuess :: String
   }
 
 startState :: State
-startState = State 0 0
+startState = State 0 0 "" ""
 
 getTags :: Maybe Params -> IO [Tag]
-getTags postDataMb = let 
+getTags postDataMb = let
   postDataArgs = case postDataMb of
     Nothing -> []
-    Just params -> ["--post-data", 
+    Just params -> ["--post-data",
       intercalate "&" . map (\ (k, v) -> k ++ "=" ++ v) $ M.toList params]
   args = ["-O", "-", "http://freerice.com"] ++ postDataArgs
   in parseTags <$> run ("hide_errs", "wget":args)
@@ -40,34 +60,36 @@ tagsToParams = let
 
 tagsToCorrectStr :: [Tag] -> Maybe [Char]
 tagsToCorrectStr tags = let
-  incorrectsToEnd = filter 
-    (tagOpenAttrNameLit "div" "id" (== "incorrect") . head) . 
-    init $ tails tags 
+  incorrectsToEnd = filter
+    (tagOpenAttrNameLit "div" "id" (== "incorrect") . head) .
+    init $ tails tags
   in case incorrectsToEnd of
     [] -> Nothing
-    (_:TagText t:_):_ -> 
+    (_:TagText t:_):_ ->
       Just . reverse . dropWhile isSpace . reverse $ dropWhile isSpace t
     _ -> error "unexpected response from freerice.."
 
-collectAnswer :: String -> String -> IO (Maybe Int)
-collectAnswer msg s = do
-  clrScr
-  putStr $ msg ++ "\n\n" ++ s
+collectAnswer :: String -> IO (Maybe Int)
+collectAnswer s = do
+  putStr $ "\n" ++ s
   let
-    doingItWrong = collectAnswer "Enter one of the number choices." s
+    doingItWrong = do
+      putStrLn "Enter one of the number choices."
+      collectAnswer s
   c <- getChar
   if c == 'q' then return Nothing else case readMb [c] of
     Nothing -> doingItWrong
     Just i -> if i < 1 || i > 4 then doingItWrong else return $ Just i
 
-playGame :: Maybe Params -> State -> IO ()
-playGame paramsMb (State roundNum rightNum) = do
+playGame :: Options -> Maybe Params -> State -> IO ()
+playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
   tags <- getTags paramsMb
   home <- getEnv "HOME"
   (correctStr, rightNum') <- case paramsMb of
     Nothing -> return ("", rightNum)
     _ -> case tagsToCorrectStr tags of
-      Nothing -> return ("correct!", rightNum + 1)
+      Nothing -> return ("correct, " ++ lastWord ++ " = " ++ lastGuess,
+        rightNum + 1)
       Just s -> do
         appendFile (home ++ "/.ricer/wrong") (head (words s) ++ "\n")
         return ("wrong!  " ++ s, rightNum)
@@ -77,16 +99,26 @@ playGame paramsMb (State roundNum rightNum) = do
     Just wordStr = M.lookup "INFO3" params
     word:choices = breaks (== '|') wordStr
     topStr = show rightNum' ++ " / " ++ show roundNum ++ ": " ++ correctStr
-  ans <- collectAnswer topStr . unlines $ 
-    word:"":zipWith (\ n c -> show n ++ " " ++ c) [1..] choices
-  case ans of
-    Nothing -> return ()
-    Just i -> let params' = M.insert "SELECTED" (show i) params
-      in playGame (Just params') $ State (roundNum + 1) rightNum'
+    keepAsking = case optTillNRight opts of
+      Nothing -> True
+      Just n -> n > rightNum'
+  clrScr
+  putStrLn topStr
+  when keepAsking $ do
+    ans <- collectAnswer . unlines $
+      word:"":zipWith (\ n c -> show n ++ " " ++ c) [1..] choices
+    case ans of
+      Nothing -> return ()
+      Just i ->
+        playGame opts (Just params') .
+          State (roundNum + 1) rightNum' word $ choices !! (i - 1)
+        where params' = M.insert "SELECTED" (show i) params
 
 main :: IO ()
 main = do
+  (opts, args) <- doArgs "usage" defOpts options
+  let [] = args
   hSetBuffering stdin NoBuffering
   home <- getEnv "HOME"
   createDirectoryIfMissing False $ home ++ "/.ricer"
-  playGame Nothing startState
+  playGame opts Nothing startState
