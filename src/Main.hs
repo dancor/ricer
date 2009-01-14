@@ -92,7 +92,7 @@ playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
         rightNum + 1)
       Just s -> do
         appendFile (home ++ "/.ricer/wrong") (head (words s) ++ "\n")
-        return ("wrong!  " ++ s, rightNum)
+        return ("*********WRONG!********* " ++ s, rightNum)
   let
     params = tagsToParams tags
     -- lol param name..
