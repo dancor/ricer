@@ -15,19 +15,24 @@ import Text.HTML.TagSoup.Match
 import qualified Data.Map as M
 
 data Options = Options {
-    optTillNRight :: Maybe Int
+  optTillNRight :: Maybe Int,
+  optNumbering :: String
 }
 
 defOpts :: Options
 defOpts = Options {
-    optTillNRight = Nothing
+  optTillNRight = Nothing,
+  optNumbering = "1234"
 }
 
 options :: [OptDescr (Options -> Options)]
 options = [
   Option "n" ["till-n-right"]
     (ReqArg (\ a o -> o {optTillNRight = Just $ read a}) "N")
-    "exit after getting N right"
+    "exit after getting N right",
+  Option "N" ["numbering"]
+    (ReqArg (\ a o -> o {optNumbering = a}) "STR")
+    "use a custom set of characters to number the four options"
   ]
 
 type Params = M.Map String String
@@ -69,17 +74,18 @@ tagsToCorrectStr tags = let
       Just . reverse . dropWhile isSpace . reverse $ dropWhile isSpace t
     _ -> error "unexpected response from freerice.."
 
-collectAnswer :: String -> IO (Maybe Int)
-collectAnswer s = do
+collectAnswer :: Options -> String -> IO (Maybe Int)
+collectAnswer opts s = do
   putStr $ "\n" ++ s
   let
     doingItWrong = do
-      putStrLn "Enter one of the number choices."
-      collectAnswer s
+      putStrLn "Enter one of the word choices."
+      collectAnswer opts s
   c <- getChar
-  if c == 'q' then return Nothing else case readMb [c] of
-    Nothing -> doingItWrong
-    Just i -> if i < 1 || i > 4 then doingItWrong else return $ Just i
+  if c == 'q' then return Nothing else
+    case (+ 1) <$> elemIndex c (optNumbering opts) of
+      Nothing -> doingItWrong
+      Just i -> if i < 1 || i > 4 then doingItWrong else return $ Just i
 
 playGame :: Options -> Maybe Params -> State -> IO ()
 playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
@@ -105,8 +111,8 @@ playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
   clrScr
   putStrLn topStr
   when keepAsking $ do
-    ans <- collectAnswer . unlines $
-      word:"":zipWith (\ n c -> show n ++ " " ++ c) [1..] choices
+    ans <- collectAnswer opts . unlines $
+      word:"":zipWith (\ n c -> [n] ++ " " ++ c) (optNumbering opts) choices
     case ans of
       Nothing -> return ()
       Just i ->
