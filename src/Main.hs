@@ -11,8 +11,9 @@ import System.Directory
 import System.Environment
 import System.IO
 import Text.HTML.TagSoup
-import Text.HTML.TagSoup.Match
 import qualified Data.Map as M
+
+import TagSoupMatch
 
 data Options = Options {
   optTillNRight :: Maybe Int,
@@ -47,7 +48,7 @@ data State = State {
 startState :: State
 startState = State 0 0 "" ""
 
-getTags :: Maybe Params -> IO [Tag]
+getTags :: Maybe Params -> IO [Tag String]
 getTags postDataMb = let
   postDataArgs = case postDataMb of
     Nothing -> []
@@ -56,14 +57,14 @@ getTags postDataMb = let
   args = ["-O", "-", "http://freerice.com"] ++ postDataArgs
   in parseTags <$> run ("hide_errs", "wget":args)
 
-tagsToParams :: [Tag] -> Params
+tagsToParams :: [Tag String] -> Params
 tagsToParams = let
   -- I should have used Maybe but List's were briefer; am I going to hell?
   toPair (TagOpen _ [_, ("name", n), ("value", v)]) = [(n, v)]
   toPair _ = []
   in M.fromList . concatMap toPair . filter (isTagOpenName "input")
 
-tagsToCorrectStr :: [Tag] -> Maybe [Char]
+tagsToCorrectStr :: [Tag String] -> Maybe String
 tagsToCorrectStr tags = let
   incorrectsToEnd = filter
     (tagOpenAttrNameLit "div" "id" (== "incorrect") . head) .
