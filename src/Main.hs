@@ -9,32 +9,13 @@ import HSH
 import System.Console.GetOpt
 import System.Directory
 import System.Environment
+import System.FilePath
 import System.IO
 import Text.HTML.TagSoup
 import qualified Data.Map as M
 
 import TagSoupMatch
-
-data Options = Options {
-  optTillNRight :: Maybe Int,
-  optNumbering :: String
-}
-
-defOpts :: Options
-defOpts = Options {
-  optTillNRight = Nothing,
-  optNumbering = "1234"
-}
-
-options :: [OptDescr (Options -> Options)]
-options = [
-  Option "n" ["till-n-right"]
-    (ReqArg (\ a o -> o {optTillNRight = Just $ read a}) "N")
-    "exit after getting N right",
-  Option "N" ["numbering"]
-    (ReqArg (\ a o -> o {optNumbering = a}) "STR")
-    "use a custom set of characters to number the four options"
-  ]
+import qualified Opt
 
 type Params = M.Map String String
 
@@ -75,7 +56,7 @@ tagsToCorrectStr tags = let
       Just . reverse . dropWhile isSpace . reverse $ dropWhile isSpace t
     _ -> error "unexpected response from freerice.."
 
-collectAnswer :: Options -> String -> IO (Maybe Int)
+collectAnswer :: Opt.Opts -> String -> IO (Maybe Int)
 collectAnswer opts s = do
   putStr $ "\n" ++ s
   let
@@ -84,11 +65,11 @@ collectAnswer opts s = do
       collectAnswer opts s
   c <- getChar
   if c == 'q' then return Nothing else
-    case (+ 1) <$> elemIndex c (optNumbering opts) of
+    case (+ 1) <$> elemIndex c (Opt.numbering opts) of
       Nothing -> doingItWrong
       Just i -> if i < 1 || i > 4 then doingItWrong else return $ Just i
 
-playGame :: Options -> Maybe Params -> State -> IO ()
+playGame :: Opt.Opts -> Maybe Params -> State -> IO ()
 playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
   tags <- getTags paramsMb
   home <- getEnv "HOME"
@@ -106,14 +87,14 @@ playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
     Just wordStr = M.lookup "INFO3" params
     word:choices = breaks (== '|') wordStr
     topStr = show rightNum' ++ " / " ++ show roundNum ++ ": " ++ correctStr
-    keepAsking = case optTillNRight opts of
+    keepAsking = case Opt.tillNRight opts of
       Nothing -> True
       Just n -> n > rightNum'
   clrScr
   putStrLn topStr
   when keepAsking $ do
     ans <- collectAnswer opts . unlines $
-      word:"":zipWith (\ n c -> [n] ++ " " ++ c) (optNumbering opts) choices
+      word:"":zipWith (\ n c -> [n] ++ " " ++ c) (Opt.numbering opts) choices
     case ans of
       Nothing -> return ()
       Just i ->
@@ -121,10 +102,17 @@ playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
           State (roundNum + 1) rightNum' word $ choices !! (i - 1)
         where params' = M.insert "SELECTED" (show i) params
 
+usage :: String
+usage = "usage: ricer [options]\n" ++ Opt.optInfo
+
+doErrs :: [String] -> a
+doErrs errs = error $ concat errs ++ usage
+
 main :: IO ()
 main = do
-  (opts, args) <- doArgs "usage" defOpts options
-  let [] = args
+  homeDir <- getHomeDirectory
+  (opts, args) <- Opt.getOpts (homeDir </> ".ricer" </> "config") usage
+  unless (null args) $ doErrs ["unrecognized args: " ++ show args ++ "\n"]
   hSetBuffering stdin NoBuffering
   home <- getEnv "HOME"
   createDirectoryIfMissing False $ home ++ "/.ricer"
