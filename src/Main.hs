@@ -12,9 +12,9 @@ import System.Environment
 import System.FilePath
 import System.IO
 import Text.HTML.TagSoup
+import Text.HTML.TagSoup.Match
 import qualified Data.Map as M
 
-import TagSoupMatch
 import qualified Opt
 
 type Params = M.Map String String
