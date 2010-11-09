@@ -18,8 +18,6 @@ import qualified Data.Map as M
 
 import qualified Opt
 
--- todo: clear input buffer more often to prevent accidents
-
 type Params = M.Map String String
 
 data State = State {
@@ -32,15 +30,25 @@ data State = State {
 startState :: State
 startState = State 0 0 "" ""
 
+-- up to 60
+setLevel :: FilePath -> Int -> IO ()
+setLevel home l = 
+  myRun "wget" ["--save-cookies", home </> ".ricer" </> "cookies",
+    "http://freerice.com/set_level/" ++ show l] >> return ()
+
 myRun :: FilePath -> [String] -> IO String
 myRun c as = do
   -- todo: error checking?
   (_ec, out, _err) <- readProcessWithExitCode c as ""
   return out
 
-getPage :: Maybe Params -> IO String
-getPage postDataMb = myRun "wget" args where
-  args = ["-O", "-", "http://freerice.com/game.php"] ++ postDataArgs
+frPage = "http://freerice.com/game.php"
+
+getPage :: FilePath -> String -> Maybe Params -> IO String
+getPage home page postDataMb = myRun "wget" args where
+  args = 
+     ["--load-cookies", home </> ".ricer" </> "cookies", "-O", "-", page] ++
+     postDataArgs
   postDataArgs = case postDataMb of
     Nothing -> []
     Just params -> ["--post-data",
@@ -63,13 +71,16 @@ tagsToCorrectStr tags = case incorrectsToEnd of
   incorrectsToEnd = drop 1 $ dropWhile
     (not . tagOpenAttrNameLit "div" "id" (== "incorrect")) tags
 
-collectAnswer :: Opt.Opts -> String -> IO (Maybe Int)
-collectAnswer opts s = do
+whileM t f = t >>= \ r -> when r (f >> whileM t f)
+
+getUserAnswer :: Opt.Opts -> String -> IO (Maybe Int)
+getUserAnswer opts s = do
+  whileM (hReady stdin) getChar
   putStr $ "\n" ++ s
   let
     doingItWrong = do
       putStrLn "Enter one of the word choices."
-      collectAnswer opts s
+      getUserAnswer opts s
   c <- getChar
   if c == 'q' then return Nothing else
     case (+ 1) <$> elemIndex c (Opt.numbering opts) of
@@ -80,9 +91,9 @@ tagTextMb :: Tag t -> Maybe t
 tagTextMb (TagText t) = Just t
 tagTextMb _ = Nothing
 
-playGame :: Opt.Opts -> Maybe Params -> State -> IO ()
-playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
-  tags <- parseTags <$> getPage paramsMb
+playGame :: Opt.Opts -> FilePath -> Maybe Params -> State -> IO ()
+playGame opts home paramsMb (State roundNum rightNum lastWord lastGuess) = do
+  tags <- parseTags <$> getPage home frPage paramsMb
   home <- getEnv "HOME"
   (correctStr, rightNum') <- case paramsMb of
     Nothing -> return ("", rightNum)
@@ -90,8 +101,17 @@ playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
       Nothing -> return ("correct, " ++ lastWord ++ " = " ++ lastGuess,
         rightNum + 1)
       Just s -> do
-        appendFile (home ++ "/.ricer/wrong") (head (words s) ++ "\n")
-        return ("*********WRONG!********* " ++ s, rightNum)
+        appendFile (home ++ "/.ricer/wrong") (words s !! 1 ++ "\n")
+        putStrLn ""
+        let
+          wrongPre = "Incorrect! "
+          typeLine = drop (length wrongPre) s
+          repent = do
+            putStrLn $ wrongPre ++ "Please type: " ++ typeLine
+            penatence <- getLine
+            when (penatence /= typeLine) $ repent
+        repent
+        return ("", rightNum)
   let
     word = head . catMaybes . map tagTextMb $
       dropWhile (/= TagOpen "div" [("id","question-title")]) tags
@@ -104,12 +124,12 @@ playGame opts paramsMb (State roundNum rightNum lastWord lastGuess) = do
   clrScr
   putStrLn topStr
   when keepAsking $ do
-    ans <- collectAnswer opts . unlines $
+    ans <- getUserAnswer opts . unlines $
       word:"":zipWith (\ n c -> [n] ++ " " ++ c) (Opt.numbering opts) wdList
     case ans of
       Nothing -> return ()
       Just i ->
-        playGame opts 
+        playGame opts home
           (Just . M.insert "op" "next" $ 
             M.insert "answer" (show $ i - 1) params) $
           State (roundNum + 1) rightNum' word $ wdList !! (i - 1)
@@ -128,4 +148,5 @@ main = do
   hSetBuffering stdin NoBuffering
   home <- getEnv "HOME"
   createDirectoryIfMissing False $ home ++ "/.ricer"
-  playGame opts Nothing startState
+  setLevel home $ Opt.level opts
+  playGame opts home Nothing startState
